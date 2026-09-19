@@ -1,0 +1,41 @@
+[package]
+name = "tpt-app-verify"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = [".", "engine", "desktop"]
+resolver = "2"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# Pro edition (paid desktop build): adds interval-based range/overflow
+# checking on top of the free edition's division-by-zero and assertion
+# checks, plus a plain-text certification-style export.
+pro = ["tpt-verify-engine/pro"]
+
+[dependencies]
+tpt-appfront-core = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-appfront/crates/tpt-appfront-core" }
+tpt-appfront-dom = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-appfront/crates/tpt-appfront-dom" }
+tpt-verify-engine = { path = "engine" }
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "Document", "Window", "Element",
+    "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement",
+] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release.package.tpt-verify-desktop]
+opt-level = 3

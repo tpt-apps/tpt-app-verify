@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>TPT Verify — TPT AppFront</title>
+    <!-- data-wasm-opt="0" disables trunk's wasm-opt pass: the modern Rust
+         wasm target emits bulk-memory opcodes that the cached Binaryen
+         rejects, and the release profile (opt-level = "z", lto, strip)
+         already keeps the payload small. -->
+    
+<script type="module">
+import init, * as bindings from '/tpt-app-verify-2fd2288aaf8705d8.js';
+const wasm = await init({ module_or_path: '/tpt-app-verify-2fd2288aaf8705d8_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <link rel="modulepreload" href="/tpt-app-verify-2fd2288aaf8705d8.js" crossorigin="anonymous" integrity="sha384-ZYp/bi89xWLyTNmXAjg6vpfV9S/G3BU0pmbuKUrVJohOGzY3oohmYG7Ap+i8D2zF"><link rel="preload" href="/tpt-app-verify-2fd2288aaf8705d8_bg.wasm" crossorigin="anonymous" integrity="sha384-vWmep69nQBkyMUitfsDT/9/74FigWvqQdU0v+DAVPmLLLxcYhA0Z6H3v+ijUaGIf" as="fetch" type="application/wasm"></head>
+  <body>
+    <!-- Marker div: `start()` mounts here for standalone dev only; when the
+         build is embedded in tptsolutions.co.nz/tools the hub runner calls
+         `mount(container)` itself and this file is never served. -->
+    <div id="tpt-appfront-root"></div>
+  </body>
+</html>

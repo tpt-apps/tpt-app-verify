@@ -1,0 +1,5 @@
+/target
+/engine/target
+/desktop/target
+release/
+.kilo/worktrees

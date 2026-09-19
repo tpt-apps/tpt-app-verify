@@ -1,0 +1,19 @@
+[package]
+name = "tpt-verify-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Tiny verification-DSL front end over tpt-formal's symbolic execution / abstract interpretation crates. Pure Rust, no UI deps, host-testable."
+publish = false
+
+[features]
+default = []
+# Pro edition: adds abstract-interpretation-based overflow/range checking on
+# top of the free edition's symbolic execution (div-by-zero + assertions),
+# plus a plain-text certification-style report export.
+pro = []
+
+[dependencies]
+tpt-for-symbolic-exec = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-formal/crates/tpt-for-symbolic-exec" }
+tpt-for-abstract-interp = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-formal/crates/tpt-for-abstract-interp" }
+syn = { version = "2", features = ["full", "extra-traits"] }
+proc-macro2 = "1"

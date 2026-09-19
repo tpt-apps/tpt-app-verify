@@ -1,0 +1,17 @@
+[package]
+name = "tpt-verify-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "TPT Verify Pro - desktop webview shell hosting the appfront DOM bundle."
+publish = false
+
+[[bin]]
+name = "tpt-verify-pro"
+path = "src/main.rs"
+
+[dependencies]
+tpt-appfront-webview = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-appfront/crates/tpt-appfront-webview" }
+# Embeds `../dist` into the exe at compile time so the shipped binary is a
+# genuinely standalone, single-file download — no separate dist/ folder the
+# customer could unzip apart from it or move the exe away from.
+include_dir = "0.7"
