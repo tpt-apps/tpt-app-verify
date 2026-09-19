@@ -1,0 +1,27 @@
+name: CI
+
+# The correctness backbone for a paid formal-verification product: this
+# used to be a manual step ("cargo test in engine/", per todo.md) that only
+# ran when someone remembered to before packaging a release. Runs both
+# feature configurations since Pro adds real behavior (interval hints),
+# not just a cfg-gated no-op.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    # engine/cli are pure Rust with no Windows-specific deps (desktop's
+    # WebView2 dependency isn't exercised here), so a cheaper/faster
+    # Linux runner is enough for this job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: engine tests (free)
+        run: cargo test --manifest-path engine/Cargo.toml
+      - name: engine tests (pro)
+        run: cargo test --manifest-path engine/Cargo.toml --features pro
+      - name: cli builds
+        run: cargo build -p tpt-verify-cli

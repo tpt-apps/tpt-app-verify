@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [workspace]
-members = [".", "engine", "desktop"]
+members = [".", "engine", "desktop", "cli"]
 resolver = "2"
 
 [lib]
@@ -24,8 +24,9 @@ tpt-appfront-dom = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-appfront
 tpt-verify-engine = { path = "engine" }
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = [
-    "Document", "Window", "Element",
+    "Document", "Window", "Element", "Node", "HtmlHeadElement",
     "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement",
+    "Navigator", "Clipboard",
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"

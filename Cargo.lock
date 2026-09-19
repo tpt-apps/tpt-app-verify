@@ -3433,6 +3433,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-verify-cli"
+version = "0.1.0"
+dependencies = [
+ "tpt-verify-engine",
+]
+
+[[package]]
 name = "tpt-verify-desktop"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,13 @@
+[package]
+name = "tpt-verify-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line front end for the TPT Verify engine — analyze a .rs file and exit non-zero on findings, for CI/pre-commit use."
+publish = false
+
+[[bin]]
+name = "tpt-verify"
+path = "src/main.rs"
+
+[dependencies]
+tpt-verify-engine = { path = "../engine" }

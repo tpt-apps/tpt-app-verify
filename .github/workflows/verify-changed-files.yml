@@ -1,0 +1,43 @@
+name: TPT Verify (changed files) — example
+
+# A template, not a live gate on this repo: this repo's own source (engine
+# internals, the UI, the desktop shell) is almost entirely outside the
+# CLI's supported subset (integer arithmetic, assert!, if/else — see
+# engine/src/rust_frontend.rs), so blanket-scanning every changed `.rs`
+# file here would just report "not analyzed" on nearly everything, which
+# is correct behavior but a bad example. Kept as `workflow_dispatch`
+# (manual "Run workflow" button) instead of an `on: pull_request` trigger
+# so it demonstrates the CLI-as-PR-gate pattern without becoming a
+# permanently-red check on this codebase.
+#
+# To actually adopt this as a live gate: copy the two "changed files" /
+# "run tpt-verify" steps below into a real `on: pull_request` workflow in a
+# repo whose changed files are the kind of arithmetic-heavy code this tool
+# analyzes (payment/quantity math, rate calculations, etc.), and point
+# `--diff-filter` at that codebase's own `.rs` (or, once a Rust-source
+# front end for another language exists, that language's) files.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build tpt-verify
+        run: cargo build --release -p tpt-verify-cli
+      - name: List changed .rs files (vs. the default branch)
+        id: changed
+        run: |
+          git diff --name-only --diff-filter=ACMR "origin/${{ github.event.repository.default_branch }}"...HEAD -- '*.rs' > changed_files.txt
+          cat changed_files.txt
+      - name: Run tpt-verify on changed files
+        run: |
+          if [ -s changed_files.txt ]; then
+            ./target/release/tpt-verify $(cat changed_files.txt)
+          else
+            echo "No changed .rs files."
+          fi
