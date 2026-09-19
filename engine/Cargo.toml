@@ -13,7 +13,7 @@ default = []
 pro = []
 
 [dependencies]
-tpt-for-symbolic-exec = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-formal/crates/tpt-for-symbolic-exec" }
-tpt-for-abstract-interp = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-formal/crates/tpt-for-abstract-interp" }
+tpt-for-symbolic-exec = { git = "https://github.com/tpt-solutions/tpt-formal.git", rev = "063249c" }
+tpt-for-abstract-interp = { git = "https://github.com/tpt-solutions/tpt-formal.git", rev = "063249c" }
 syn = { version = "2", features = ["full", "extra-traits"] }
 proc-macro2 = "1"

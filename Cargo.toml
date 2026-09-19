@@ -19,8 +19,8 @@ default = []
 pro = ["tpt-verify-engine/pro"]
 
 [dependencies]
-tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront.git", rev = "a75a79880bbbe32dcbf39fe920d73b79f3a97eb4" }
-tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront.git", rev = "a75a79880bbbe32dcbf39fe920d73b79f3a97eb4" }
+tpt-appfront-core = { git = "https://github.com/tpt-solutions/tpt-appfront.git", rev = "1b4e3e8" }
+tpt-appfront-dom = { git = "https://github.com/tpt-solutions/tpt-appfront.git", rev = "1b4e3e8" }
 tpt-verify-engine = { path = "engine" }
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = [

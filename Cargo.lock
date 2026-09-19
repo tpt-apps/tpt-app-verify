@@ -3363,7 +3363,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-core"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=1b4e3e8#1b4e3e87cd9ce57e12c49c9b532a7578cf1d3790"
 dependencies = [
  "serde",
  "serde_json",
@@ -3374,7 +3374,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-dom"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=1b4e3e8#1b4e3e87cd9ce57e12c49c9b532a7578cf1d3790"
 dependencies = [
  "serde",
  "serde_json",
@@ -3386,7 +3386,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-macros"
 version = "0.1.1"
-source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=1b4e3e8#1b4e3e87cd9ce57e12c49c9b532a7578cf1d3790"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3416,14 +3416,17 @@ dependencies = [
 [[package]]
 name = "tpt-for-abstract-interp"
 version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-formal.git?rev=063249c#063249c95ac9e09d44687ab36bfe14189a891146"
 
 [[package]]
 name = "tpt-for-sat"
 version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-formal.git?rev=063249c#063249c95ac9e09d44687ab36bfe14189a891146"
 
 [[package]]
 name = "tpt-for-smt-lite"
 version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-formal.git?rev=063249c#063249c95ac9e09d44687ab36bfe14189a891146"
 dependencies = [
  "tpt-for-sat",
 ]
@@ -3431,6 +3434,7 @@ dependencies = [
 [[package]]
 name = "tpt-for-symbolic-exec"
 version = "0.1.0"
+source = "git+https://github.com/tpt-solutions/tpt-formal.git?rev=063249c#063249c95ac9e09d44687ab36bfe14189a891146"
 dependencies = [
  "tpt-for-smt-lite",
 ]
