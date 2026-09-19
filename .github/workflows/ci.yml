@@ -23,5 +23,7 @@ jobs:
         run: cargo test --manifest-path engine/Cargo.toml
       - name: engine tests (pro)
         run: cargo test --manifest-path engine/Cargo.toml --features pro
-      - name: cli builds
-        run: cargo build -p tpt-verify-cli
+      - name: cli tests + build (free)
+        run: cargo test -p tpt-verify-cli
+      - name: cli tests + build (pro)
+        run: cargo test -p tpt-verify-cli --features pro

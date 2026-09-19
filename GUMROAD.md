@@ -32,16 +32,24 @@ release\TPT-Verify-Pro.zip
 ## Honest scope note (read before writing ad copy)
 
 The engine parses **real Rust source** via `syn` (not a toy DSL) and
-analyzes every `fn` in the pasted file independently — this is a genuine
-step up from the original v1 draft, and both the free and Pro editions are
-fully tested (`cargo test` / `cargo test --features pro` in `engine/`, 12/12
-green in each). Concretely, what's real:
+analyzes every `fn` in the pasted file independently. Free and Pro are
+both fully tested (`cargo test` / `cargo test --features pro` in
+`engine/`). Concretely, what's real:
 
 - **Real Rust parsing.** Paste an actual function; integer parameters
   become inputs, `let` bindings, `assert!`/`debug_assert!`, and `+ - * /`
   arithmetic are understood directly from the Rust AST.
 - **Multi-function analysis.** Every `fn` in the pasted source is analyzed
   and reported on independently in one pass.
+- **`if`/`else` and `else if`** — both branches are proven independently
+  (real path exploration, not a coverage skip). A finding on only one
+  branch of an `if` is a real, common shape this now catches.
+- **Calls to other functions in the same paste** are inlined and checked
+  compositionally — a callee's own `assert!`s and divisions are checked
+  *in the caller's context*, so passing a bad literal into a helper
+  function is caught at the call site, not just inside the helper in
+  isolation. Direct/mutual recursion is rejected explicitly (not silently
+  wrong) since unbounded inlining has no termination guarantee.
 - **Exact division-by-zero proofs**, including across a real precondition
   guard: `assert!(x != 0)` followed by `10 / x` is proven safe from
   division-by-zero (the assert's condition is known to hold for everything
@@ -49,15 +57,24 @@ green in each). Concretely, what's real:
   *also* correctly flagged as reachably violable if a caller can actually
   pass `x = 0`. That distinction (this can panic vs. given it didn't panic,
   the division is safe) is the actual differentiator over a linter.
-- **Report export (Pro)** — a plain-text/Markdown report across every
-  analyzed function: status, findings, and a methodology note, downloadable
-  from the app. Deliberately plain text rather than a binary PDF layout (see
-  `engine/src/report.rs`) — a fast-follow, not a blocker.
+- **Real interval analysis (Pro)** — a genuine fixpoint solver
+  (`tpt-for-abstract-interp`) propagates value ranges through every
+  `assert`/`assume`/`if`, and flags an arithmetic expression only when its
+  *actual proven range* touches `i64::MIN`/`MAX` — not a keyword-matching
+  heuristic ("has this input got an assert on it at all").
+  Automatically clears once you bound the inputs enough, and still catches
+  a bound that's technically present but too wide.
+- **Report export (Pro)** — plain-text/Markdown, copy-to-clipboard, and PDF
+  (`engine/src/pdf.rs`, dependency-free, mirrors fea-lite's writer) across
+  every analyzed function: status, findings, and a methodology note.
+- **CLI edition** (`tpt-verify-cli`) with CI-friendly exit codes — a
+  pre-commit/CI gate, not just a browser demo.
 - **Never silently skips code it can't model.** Anything outside the
-  supported subset (loops, `if`, function calls, non-integer types, structs,
-  arrays/pointers, ...) makes *that function* report an explicit
-  "not analyzed: <reason>" rather than being ignored. Other functions in the
-  same paste are still analyzed.
+  supported subset (loops, non-integer types, structs, arrays/pointers,
+  method calls, calls to external/library functions, recursion, ...)
+  makes *that function* report an explicit "not analyzed: <reason>"
+  rather than being ignored. Other functions in the same paste are still
+  analyzed.
 
 **What's still a real, stated boundary — don't oversell this:**
 - **No buffer-overflow / null-dereference detection.** This engine is
@@ -75,11 +92,16 @@ green in each). Concretely, what's real:
   assuming safety (the correct direction to be wrong in), but a flagged
   compound assertion is a prompt to look closer, not an automatically
   confirmed defect.
+- **No loops or recursion.** Both are rejected explicitly, not silently
+  approximated — there's no widening-based loop analysis here (the
+  interval analysis's own fixpoint engine has one internally, for its own
+  narrow CFG, but the Rust-source frontend doesn't expose loops to it).
 
-Net: market the Rust-source parsing, the multi-function pass, the exact
-division-by-zero guarantee (including the precondition-vs-consequence
-distinction), and the report export — all real and tested today. Don't
-market blanket "finds memory-safety bugs" claims.
+Net: market the Rust-source parsing, the multi-function and now
+if/else + call-inlining coverage, the exact division-by-zero guarantee
+(including the precondition-vs-consequence distinction), the real interval
+analysis, and the CLI/CI story — all real and tested today. Don't market
+blanket "finds memory-safety bugs" or "handles any Rust code" claims.
 
 ## Product name
 
@@ -106,9 +128,12 @@ Paste a real Rust function, get an exact proof it can't divide by zero on any re
 ```
 Parses real Rust source (not a toy language)
 Multi-function analysis in one pass
+Supports if/else and else-if — both branches proven independently
 Exact division-by-zero proofs, including precondition guards
 Distinguishes "can panic" from "safe given it didn't"
-Downloadable verification report (Pro)
+Real interval analysis for overflow risk (Pro), not a keyword heuristic
+Downloadable/copyable verification report (Pro)
+CLI edition for CI/pre-commit gates
 Runs fully offline, no upload
 One-time purchase
 ```
@@ -131,21 +156,32 @@ check on the arithmetic-heavy parts of their code — calculations where a
 silent division-by-zero or an unguarded precondition would be a real
 incident, not just students exploring the idea.
 
+Also ships a CLI (`tpt-verify file.rs`) with CI-friendly exit codes, so it
+can gate a PR the same way a linter does, not just live in a browser tab.
+
 Pro edition (this download):
 - The full analysis engine, unlocked from the free browser demo's line/size
   limits
-- Downloadable verification report across every function in your paste —
-  status, findings, and methodology notes, ready to attach to a PR or a
-  design review
-- Interval-based hints on unbounded inputs with no range assumption
+- Downloadable and copy-to-clipboard verification report across every
+  function in your paste — status, findings, and methodology notes, ready
+  to attach to a PR or a design review
+- Real interval analysis (a fixpoint solver, not a keyword heuristic):
+  proves whether an arithmetic expression's result can actually reach
+  i64::MIN/MAX given everything your asserts/if-branches establish about
+  its inputs, and clears the finding automatically once you bound them
+  enough — not just "this input has no assert on it at all"
+- PDF export of the verification report
 - Yours to keep, runs fully offline forever, no subscription
 
-Honest scope: this analyzes arithmetic and control-flow-free Rust functions
-(integer params, let bindings, assert!, + - * /) — it does not yet detect
-memory-safety issues like buffer overflows (no memory model exists for that
-in the underlying engine), and assertion-checking on compound arithmetic
-conditions is best-effort, not a blanket proof. Division-by-zero freedom
-following a real guard is exact.
+Honest scope: this analyzes integer-arithmetic Rust functions — integer
+params, let bindings, assert!/debug_assert!, + - * /, if/else and else-if
+(both branches explored and proven independently), and calls to other
+functions defined in the same paste (inlined and checked compositionally;
+recursion is rejected explicitly). It does not yet detect memory-safety
+issues like buffer overflows (no memory model exists for that in the
+underlying engine), doesn't support loops or recursion, and
+assertion-checking on compound arithmetic conditions is best-effort, not a
+blanket proof. Division-by-zero freedom following a real guard is exact.
 
 Try the free edition first, right in your browser, no install:
 tptsolutions.co.nz/tools/verify
@@ -162,10 +198,13 @@ preinstalled on both — nothing extra to download.
 
 ## Cover image / thumbnail
 
-Not created yet. A screenshot of the two-function demo (one flagged, one
-clean) side by side, or the downloaded report's summary section, is the
-most convincing cover — run the desktop exe or `/tools/verify` and grab one.
-No stock/AI art.
+A candidate is at `assets/gumroad-cover-candidate.png` — the actual Pro
+desktop exe, analyzed, showing one real division-by-zero finding and one
+real assertion finding side by side (with badges, witness path, and the
+plain-English explanation), captured during this session's interactive
+desktop smoke test. Crop/resize to Gumroad's cover dimensions before
+uploading; re-capture from a fresh run if the sample set changes. No
+stock/AI art.
 
 ## After publishing
 

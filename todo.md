@@ -24,13 +24,20 @@
       structs/arrays, destructuring, `let else`) makes *that function*
       report an explicit error naming what and where — never silently
       ignored; other functions in the same paste are still analyzed
-- [x] Pro feature: lightweight "unbounded input" range hint (flags free
-      inputs with no `assert`/`assume` bounding their range) — a real
-      CFG-based `tpt_for_abstract_interp::analyze` pass (per-statement
-      interval tracking) is a stronger version of this, not yet wired in
-- [x] Report export (`report.rs`, Pro): plain-text/Markdown summary across
-      every analyzed function
-- [x] 12/12 tests green in both `cargo test` and `cargo test --features pro`
+- [x] Pro feature: real interval analysis (`range.rs`, wired to
+      `tpt_for_abstract_interp::analyze`'s fixpoint engine over a real CFG
+      built from the Rust frontend's `SStmt`/`If` tree) — flags an
+      arithmetic expression only when its *proven* range touches
+      `i64::MIN`/`MAX`, replacing the old "any unbounded input" heuristic
+- [x] Report export (`report.rs`, Pro): plain-text/Markdown, copy-to-
+      clipboard, and PDF (`pdf.rs`, dependency-free, mirrors fea-lite's
+      writer) summary across every analyzed function
+- [x] Function calls to other functions in the same paste (compositional):
+      fully inlined at the call site (parameters substituted, callee's own
+      `assert!`s/divisions checked in the caller's context), with
+      call-site-unique variable namespacing so inlined locals never alias
+      across calls, and explicit rejection of direct/mutual recursion
+- [x] 35/35 tests green in `cargo test --features pro` (engine)
 
 ## Phase 2 — Free WASM UI (tpt-appfront-dom)
 - [x] Textarea for pasted Rust source + Analyze button, Elm-style
@@ -43,8 +50,8 @@
 - [x] Free-tier honesty note in the UI itself (not just marketing copy):
       explains the exact/best-effort boundary so a "clean" result on
       compound arithmetic isn't over-read as a proof
-- [x] Pro: "Download report" button (Blob + object URL, no server round
-      trip)
+- [x] Pro: "Download report", "Download PDF", and "Copy report" buttons
+      (Blob + object URL / Clipboard API, no server round trip)
 - [x] Browser-verified via the actual hub runner (`/tools/verify`): mounts,
       analyzes the default two-function sample, shows expected findings
 
@@ -55,9 +62,14 @@
       (`target\release\tpt-verify-pro.exe`)
 - [x] Packaged for Gumroad: `release\TPT Verify Pro\` (exe + dist) zipped to
       `release\TPT-Verify-Pro.zip`
-- [ ] Interactive desktop smoke test in a real session (open exe, paste a
-      function, analyze, download report) — built and launches without
-      error, but not manually clicked through yet
+- [x] Interactive desktop smoke test performed (automated via pywinauto
+      driving the real exe, since no human hands were available in this
+      session): launches, renders the full UI correctly, Analyze produces
+      real results with badges/explanations, Download report/PDF/Copy
+      report all present. This is what actually caught the deeper
+      `tpt-appfront-dom` unmount bug above — it reproduced first here
+      (and, once understood, in the plain browser Pro build too), not in
+      the desktop shell specifically.
 
 ## Phase 4 — Ship & measure
 - [x] Registry entry live (`src/lib/tpt-apps-registry.ts`), free wasm bundle
@@ -66,7 +78,11 @@
       card lists it
 - [ ] Gumroad product from `GUMROAD.md`, URL + price into the registry entry
       — **manual, next step**
-- [ ] Cover image/screenshot for the Gumroad listing
+- [x] Cover image candidate captured: `assets/gumroad-cover-candidate.png`
+      (a real analyzed desktop-exe screenshot from this session's smoke
+      test) — still needs a human crop/resize pass to Gumroad's exact
+      cover dimensions before upload, but the "run it and grab a
+      screenshot" step is done.
 
 ## Known engine limitations (real, not TODOs — see `GUMROAD.md`'s honest
 scope note for the full explanation)
@@ -76,12 +92,7 @@ scope note for the full explanation)
 - Assertion checks on compound arithmetic (not a direct same-term guard)
   are best-effort, not a proof — the underlying `tpt-for-symbolic-exec` SMT
   backend is intentionally lightweight.
-
-## Possible follow-ups (not blockers)
-- Wire `tpt_for_abstract_interp::analyze`'s real fixpoint engine in for Pro
-  range checking, replacing the current "unbounded input" heuristic.
-- A branded PDF report layout instead of plain text (mirror fea-lite's
-  dependency-free PDF writer in `engine/src/pdf.rs` if wanted).
+- No loops or recursion (rejected explicitly, never silently approximated).
 
 ## Phase 5 — Platform review follow-ups (2026-09-19)
 > From a full read-through of `engine/`, `src/`, `desktop/`, `GUMROAD.md`.
@@ -100,8 +111,7 @@ scope note for the full explanation)
       `engine/` (free + `--features pro`) on every push/PR — previously
       manual, and this is the correctness backbone for a paid
       formal-verification product.
-- [ ] No README/LICENSE in the repo — legal ambiguity for a repo under
-      `Open Source/`.
+- [x] README.md + LICENSE added — a repo under `Open Source/` had neither.
 - [x] **Found during this pass, not in the original review**: a real bug
       in the shared `tpt-appfront` framework (`tpt-appfront-dom`'s
       `render_with`, used by every app on this framework, not just this
@@ -112,8 +122,31 @@ scope note for the full explanation)
       Results panel going from plain text to a findings list) silently
       failed to update the DOM, with no error, no panic, nothing in the
       console. This is why clicking "Analyze" appeared to do nothing
-      before this fix. Fixed in
-      `tpt-appfront/crates/tpt-appfront-dom/src/lib.rs`.
+      before this fix — and fixing it exposed a *second*, deeper bug in
+      the same file: `MountedRoot::unmount` detached the mounted node
+      from the wrong parent (its container's parent, not the container
+      itself), so `remove_child` silently failed and every kind-mismatch
+      remount appended a duplicate copy of the whole UI instead of
+      replacing the stale one — only visible once the first fix started
+      actually triggering the remount path. Two long-failing tests in
+      that crate had been catching this all along
+      (`mount_then_unmount_removes_dom_and_listeners`,
+      `conditional_subtree_swap_unmounts_old_listeners`); both pass now.
+      Both fixes pushed to `tpt-appfront/crates/tpt-appfront-dom/src/lib.rs`,
+      and the local-path deps in this repo's `Cargo.toml`s were switched
+      to git deps against `tpt-solutions/tpt-appfront`/`tpt-formal` so a
+      fresh clone actually builds at all (previously hardcoded absolute
+      local Windows paths — nobody else could have built this).
+- [x] **Also found during this pass**: a real bug in the shared
+      `tpt-for-symbolic-exec` crate — a division was re-detected and
+      re-reported once per statement in any `x = y; z = x;`-style
+      passthrough chain (checked the store-substituted value instead of
+      the statement's own syntax), so if/else-produced and call-inlined
+      values (both introduced this session, both lean on exactly this
+      pattern) would have shown 2-3x duplicate findings for a single real
+      division. Fixed and regression-tested in
+      `tpt-formal/crates/tpt-for-symbolic-exec/src/lib.rs` (pushed, rev
+      `ef0f80f`).
 
 ### Engine coverage
 - [x] `if`/`else` support in the Rust-source frontend — the single
@@ -125,8 +158,8 @@ scope note for the full explanation)
       condition yet (that would need the condition to reason about a
       branch-dependent value, not just a free symbol — explicit error,
       not silently wrong, if attempted).
-- [ ] Function calls to other analyzed functions (compositional
-      verification) — still unsupported, real wall for factored code.
+- [x] Function calls to other analyzed functions (compositional
+      verification) — see Phase 1's entry above.
 
 ### GUI / usability
 - [x] The shipped UI has zero custom styling (raw browser defaults) —
@@ -137,18 +170,27 @@ scope note for the full explanation)
 - [x] In-product example gallery (was: exactly one hardcoded sample) —
       a small picker covering a guarded division, an unguarded one, and
       an if/else case now that it's supported.
-- [ ] Line numbers / syntax highlighting in the paste textarea.
+- [x] Line numbers in the paste textarea (a synced-scroll gutter; full
+      syntax highlighting would need a JS editor dependency like
+      CodeMirror, out of scope for this pass — noted, not silently
+      dropped).
 - [x] "Copy report to clipboard" next to "Download report" (Pro).
+- [x] Permalink / shareable analysis (source + outcome encoded in the URL
+      fragment, so a link reproduces a paste+result without a server).
+- [x] "Explain the proof" natural-language rendering of the witness path
+      condition, alongside the raw boolean form (kept, for anyone who
+      wants the precise expression).
+- [x] Diff mode (paste a "before" and "after" version, see only findings
+      that are new or cleared).
 
 ### Adoption
-- [x] CLI edition (`cargo run -p tpt-verify-cli -- file.rs`) — a second
-      distribution channel (CI/pre-commit gate) besides the browser/
-      desktop paste flow.
+- [x] CLI edition (`cargo run -p tpt-verify-cli -- file.rs`, `--pdf` in
+      the Pro build, `--json` for tooling) — a second distribution channel
+      (CI/pre-commit gate) besides the browser/desktop paste flow.
 - [x] Example GitHub Actions workflow showing the CLI wired into CI as a
       PR gate (`.github/workflows/`).
-- [ ] VS Code extension (inline diagnostics) — the highest-leverage but
-      largest item; deferred, not started.
-- [ ] Permalink / shareable analysis (encode source+result in a URL).
-- [ ] "Explain the proof" natural-language rendering of the witness path
-      condition (currently raw AND'd boolean algebra).
-- [ ] Diff mode (before/after paste, show only new/cleared findings).
+- [x] VS Code extension (`vscode-extension/`): inline diagnostics on save,
+      shelling out to the `tpt-verify` CLI (not published to the
+      Marketplace — that's a publishing step, explicitly out of scope for
+      this pass; installable locally via `vsce package` + "Install from
+      VSIX", documented in the extension's own README).

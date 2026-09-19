@@ -10,7 +10,7 @@ name = "tpt-verify-pro"
 path = "src/main.rs"
 
 [dependencies]
-tpt-appfront-webview = { path = "D:/Programming/1PRODUCTION/Open Source/tpt-appfront/crates/tpt-appfront-webview" }
+tpt-appfront-webview = { git = "https://github.com/tpt-solutions/tpt-appfront.git", rev = "84852b7" }
 # Embeds `../dist` into the exe at compile time so the shipped binary is a
 # genuinely standalone, single-file download — no separate dist/ folder the
 # customer could unzip apart from it or move the exe away from.

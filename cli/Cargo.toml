@@ -9,5 +9,12 @@ publish = false
 name = "tpt-verify"
 path = "src/main.rs"
 
+[features]
+default = []
+# Pro edition: real interval-based range/overflow checking, plus this
+# binary's own `--pdf` report flag (mirrors the free/Pro split of the
+# browser/desktop editions).
+pro = ["tpt-verify-engine/pro"]
+
 [dependencies]
 tpt-verify-engine = { path = "../engine" }

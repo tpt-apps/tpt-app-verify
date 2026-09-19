@@ -21,12 +21,23 @@
 //!   *arithmetic*, but not yet a later `assert!`/`if` condition — see
 //!   `Ctx::var_backed` below for why that specific case is rejected
 //!   explicitly rather than silently mis-analyzed.
+//! - Calling another function defined in the same paste (as a `let`
+//!   initializer, a function's tail expression, or a bare statement) —
+//!   fully inlined at the call site with the callee's parameters
+//!   substituted by the (caller-scoped) argument expressions, so the
+//!   callee's own `assert!`s and divisions are checked in the caller's
+//!   context too. Direct or mutual recursion is rejected explicitly
+//!   (no termination guarantee for unbounded inlining, same reasoning as
+//!   why loops aren't supported); a call to anything not defined in the
+//!   same paste (an external/library function) is likewise rejected
+//!   rather than silently skipped. See `Program`/`lower_call_stmts`.
 //!
-//! Anything outside this subset (loops, function calls, non-integer
-//! types, struct/array/pointer access, ...) makes that *function* report an
-//! error naming the unsupported construct — analysis never silently ignores
-//! code it can't model, since a verification tool that does that is worse
-//! than useless. Other functions in the same file are still analyzed.
+//! Anything outside this subset (loops, non-integer types,
+//! struct/array/pointer access, method calls, ...) makes that *function*
+//! report an error naming the unsupported construct — analysis never
+//! silently ignores code it can't model, since a verification tool that
+//! does that is worse than useless. Other functions in the same file are
+//! still analyzed.
 
 use std::collections::{HashMap, HashSet};
 
@@ -42,6 +53,7 @@ use crate::{analyze_stmts, AnalysisResult};
 const RETURN_VAR: &str = "__return";
 
 /// The result of analyzing one `fn` item found in the source.
+#[derive(Clone)]
 pub struct FunctionReport {
     pub name: String,
     pub params: Vec<String>,
@@ -76,6 +88,38 @@ struct Ctx {
     /// (`expr_has_var`) rather than silently checking it against a free,
     /// disconnected symbol.
     var_backed: HashSet<String>,
+    /// `Some(prefix)` while lowering an inlined callee's body — every
+    /// `SStmt::Assign` target name introduced from here down is prefixed
+    /// with it (see `namespaced`) before being interned, so a callee's
+    /// local named e.g. `z` can never alias the caller's own `z` (or
+    /// another inlined call's `z`) in the flat, whole-program store the
+    /// symbolic executor shares across every statement. `None` for a
+    /// top-level function's own body.
+    namespace: Option<String>,
+}
+
+/// Applies `ctx.namespace` (if any) to a bare local-variable name before
+/// it's interned into a runtime store slot, or looked up as one. Compile-
+/// time-only bookkeeping (`declared`/`defs`) never needs this — only names
+/// that become an actual `SStmt::Assign` target (or a `var_backed`
+/// reference to one) can collide across an inlined call's flattened
+/// statement stream, since that's the one thing genuinely shared globally.
+fn namespaced(ctx: &Ctx, bare: &str) -> String {
+    match &ctx.namespace {
+        Some(ns) => format!("{ns}${bare}"),
+        None => bare.to_string(),
+    }
+}
+
+/// The file's other functions, indexed by name, plus the bookkeeping
+/// `lower_call_stmts` needs to inline a call soundly: which callees are
+/// currently being expanded (to reject recursion) and a counter handing
+/// out a fresh, globally-unique id to every call site (so two calls to the
+/// same function — or the same call site's nested calls — never collide).
+struct Program<'a> {
+    fns: &'a HashMap<String, &'a syn::ItemFn>,
+    call_stack: Vec<String>,
+    next_call_id: usize,
 }
 
 /// Leaks each *distinct* variable name exactly once, process-wide, and
@@ -124,53 +168,73 @@ pub fn analyze_rust_source(source: &str) -> Result<Vec<FunctionReport>, String> 
         return Err("No `fn` items found — define at least one function.".to_string());
     }
 
-    Ok(fns.into_iter().map(analyze_fn).collect())
+    // Indexed by name up front (not built lazily per-function) so any
+    // function can call any other one defined anywhere in the same paste,
+    // regardless of source order.
+    let fn_map: HashMap<String, &syn::ItemFn> = fns.iter().map(|f| (f.sig.ident.to_string(), *f)).collect();
+
+    Ok(fns.into_iter().map(|f| analyze_fn(f, &fn_map)).collect())
 }
 
-fn analyze_fn(f: &syn::ItemFn) -> FunctionReport {
-    let name = f.sig.ident.to_string();
-
-    let mut ctx = Ctx {
-        declared: HashSet::new(),
-        defs: HashMap::new(),
-        var_backed: HashSet::new(),
-    };
+/// Validates a function's parameter list against the supported subset
+/// (simple typed identifiers, integer types only, no `self`) and returns
+/// the parameter names. Shared by `analyze_fn` (the function being
+/// top-level-analyzed) and `lower_call_stmts` (a callee being inlined) so
+/// both apply exactly the same rule.
+fn typed_int_params(f: &syn::ItemFn) -> Result<Vec<String>, String> {
     let mut params = Vec::new();
-
     for arg in &f.sig.inputs {
         match arg {
             FnArg::Typed(pat_type) => match (&*pat_type.pat, &*pat_type.ty) {
                 (Pat::Ident(pat_ident), Type::Path(type_path)) => {
                     let ty_name = type_path.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default();
                     if !SUPPORTED_INT_TYPES.contains(&ty_name.as_str()) {
-                        return unsupported(name, params, format!(
+                        return Err(format!(
                             "parameter '{}' has type '{}' — only integer types are supported ({})",
                             pat_ident.ident, ty_name, SUPPORTED_INT_TYPES.join(", ")
                         ));
                     }
-                    let pname = pat_ident.ident.to_string();
-                    ctx.declared.insert(pname.clone());
-                    params.push(pname);
+                    params.push(pat_ident.ident.to_string());
                 }
-                _ => {
-                    return unsupported(name, params, "only simple typed identifier parameters are supported (no patterns, references, or generics)".to_string());
-                }
+                _ => return Err("only simple typed identifier parameters are supported (no patterns, references, or generics)".to_string()),
             },
-            FnArg::Receiver(_) => {
-                return unsupported(name, params, "methods with a 'self' receiver aren't supported".to_string());
-            }
+            FnArg::Receiver(_) => return Err("methods with a 'self' receiver aren't supported".to_string()),
         }
     }
+    Ok(params)
+}
+
+fn analyze_fn(f: &syn::ItemFn, fn_map: &HashMap<String, &syn::ItemFn>) -> FunctionReport {
+    let name = f.sig.ident.to_string();
+
+    let params = match typed_int_params(f) {
+        Ok(p) => p,
+        Err(msg) => return unsupported(name, Vec::new(), msg),
+    };
+
+    let mut ctx = Ctx {
+        declared: params.iter().cloned().collect(),
+        defs: HashMap::new(),
+        var_backed: HashSet::new(),
+        namespace: None,
+    };
+    // Seeded with this function's own name so a direct self-call
+    // (`fn f() { f(); }`) is caught by the same recursion check that
+    // catches mutual recursion between two *different* functions.
+    let mut program = Program {
+        fns: fn_map,
+        call_stack: vec![name.clone()],
+        next_call_id: 0,
+    };
 
     // The function's tail expression (its implicit return value, if any) is
     // checked through `RETURN_VAR` — see `lower_block`'s tail-position
     // handling. A return value isn't otherwise modeled (there's nothing to
     // assert about it beyond the arithmetic that produced it).
-    let stmts: Vec<SStmt> = match lower_block(&f.block, &mut ctx, Some(RETURN_VAR)) {
+    let stmts: Vec<SStmt> = match lower_block(&f.block, &mut ctx, Some(RETURN_VAR), &mut program) {
         Ok(stmts) => stmts,
         Err(msg) => return unsupported(name, params, msg),
     };
-
     FunctionReport {
         name,
         params,
@@ -195,17 +259,17 @@ fn unsupported(name: String, params: Vec<String>, msg: String) -> FunctionReport
 /// branch body — real Rust already scopes a branch's own `let` bindings to
 /// that branch, which is why each branch gets its own cloned `Ctx` in
 /// `lower_if_stmts` rather than sharing one across sibling branches.
-fn lower_block(block: &syn::Block, ctx: &mut Ctx, target: Option<&'static str>) -> Result<Vec<SStmt>, String> {
+fn lower_block(block: &syn::Block, ctx: &mut Ctx, target: Option<&'static str>, program: &mut Program) -> Result<Vec<SStmt>, String> {
     let mut out = Vec::new();
     let last_idx = block.stmts.len().checked_sub(1);
     for (i, stmt) in block.stmts.iter().enumerate() {
         if Some(i) == last_idx {
             if let Stmt::Expr(expr, None) = stmt {
-                out.extend(lower_tail(expr, ctx, target)?);
+                out.extend(lower_tail(expr, ctx, target, program)?);
                 continue;
             }
         }
-        out.extend(lower_stmt(stmt, ctx)?);
+        out.extend(lower_stmt(stmt, ctx, program)?);
     }
     Ok(out)
 }
@@ -217,17 +281,18 @@ fn lower_block(block: &syn::Block, ctx: &mut Ctx, target: Option<&'static str>) 
 /// in it is still caught — never just discarded, which would silently skip
 /// checking it) and `None` when this position is a `()`-typed statement
 /// context (e.g. a top-level `if` with no value used).
-fn lower_tail(expr: &Expr, ctx: &mut Ctx, target: Option<&'static str>) -> Result<Vec<SStmt>, String> {
+fn lower_tail(expr: &Expr, ctx: &mut Ctx, target: Option<&'static str>, program: &mut Program) -> Result<Vec<SStmt>, String> {
     match (expr, target) {
         (Expr::Macro(m), _) => lower_assert_stmts(&m.mac, ctx),
-        (Expr::If(if_expr), _) => lower_if_stmts(if_expr, ctx, target),
+        (Expr::If(if_expr), _) => lower_if_stmts(if_expr, ctx, target, program),
+        (Expr::Call(call), _) => lower_call_stmts(call, ctx, target, program),
         (_, Some(t)) => {
             let value = lower_expr(expr, ctx)?;
             Ok(vec![SStmt::assign(t, value)])
         }
         (_, None) => Err(
-            "this branch's trailing expression isn't supported (only 'if/else' or \
-             'assert!'/'debug_assert!' can end a branch that isn't producing a value)"
+            "this branch's trailing expression isn't supported (only 'if/else', a function \
+             call, or 'assert!'/'debug_assert!' can end a branch that isn't producing a value)"
                 .to_string(),
         ),
     }
@@ -245,18 +310,18 @@ fn lower_tail(expr: &Expr, ctx: &mut Ctx, target: Option<&'static str>) -> Resul
 /// on the implicit "condition was false" path), and the produced value is
 /// registered in `ctx.var_backed` by the caller (the value can differ per
 /// branch, so it can't be inlined as one static expression).
-fn lower_if_stmts(if_expr: &syn::ExprIf, ctx: &mut Ctx, target: Option<&'static str>) -> Result<Vec<SStmt>, String> {
+fn lower_if_stmts(if_expr: &syn::ExprIf, ctx: &mut Ctx, target: Option<&'static str>, program: &mut Program) -> Result<Vec<SStmt>, String> {
     let cond = lower_cond(&if_expr.cond, ctx)?;
 
     let mut then_ctx = ctx.clone();
-    let then_stmts = lower_block(&if_expr.then_branch, &mut then_ctx, target)?;
+    let then_stmts = lower_block(&if_expr.then_branch, &mut then_ctx, target, program)?;
 
     let else_stmts = match &if_expr.else_branch {
         Some((_, else_expr)) => {
             let mut else_ctx = ctx.clone();
             match &**else_expr {
-                Expr::If(inner) => lower_if_stmts(inner, &mut else_ctx, target)?,
-                Expr::Block(b) => lower_block(&b.block, &mut else_ctx, target)?,
+                Expr::If(inner) => lower_if_stmts(inner, &mut else_ctx, target, program)?,
+                Expr::Block(b) => lower_block(&b.block, &mut else_ctx, target, program)?,
                 _ => return Err("unsupported 'else' form (only 'else { ... }' or 'else if ...' are supported)".to_string()),
             }
         }
@@ -271,6 +336,74 @@ fn lower_if_stmts(if_expr: &syn::ExprIf, ctx: &mut Ctx, target: Option<&'static 
     Ok(vec![SStmt::if_then_else(cond, then_stmts, else_stmts)])
 }
 
+/// Lowers a call to another function defined in the same paste by fully
+/// inlining it at the call site: the callee's parameters are substituted
+/// with the (already-lowered, caller-scoped) argument expressions — the
+/// same `ctx.defs` substitution mechanism a plain `let` binding uses — and
+/// its body is lowered with a fresh, call-site-unique `Ctx::namespace` so
+/// its own locals can never alias the caller's (or another call's) store
+/// slots. `target`: see `lower_tail` — the callee's own tail-expression
+/// value feeds it via the store, same mechanism as an if/else-produced
+/// value. Direct or mutual recursion (`program.call_stack`) and calls to
+/// anything not defined in this same paste are rejected explicitly.
+fn lower_call_stmts(call: &syn::ExprCall, ctx: &mut Ctx, target: Option<&'static str>, program: &mut Program) -> Result<Vec<SStmt>, String> {
+    let callee_name = match &*call.func {
+        Expr::Path(p) => p.path.get_ident().map(|i| i.to_string()),
+        _ => None,
+    }
+    .ok_or_else(|| {
+        "only calls to a plain function name defined in this same paste are supported (no method calls, closures, or computed callees)".to_string()
+    })?;
+
+    let Some(&callee) = program.fns.get(&callee_name) else {
+        return Err(format!(
+            "call to '{callee_name}' isn't supported — only calls to other functions defined in \
+             this same paste are analyzed, not external/library functions"
+        ));
+    };
+    if program.call_stack.contains(&callee_name) {
+        return Err(format!(
+            "recursive call to '{callee_name}' isn't supported (direct or mutual recursion is \
+             outside the supported subset, same as loops)"
+        ));
+    }
+
+    let mut arg_exprs = Vec::with_capacity(call.args.len());
+    for arg in &call.args {
+        arg_exprs.push(lower_expr(arg, ctx)?);
+    }
+
+    let params = typed_int_params(callee).map_err(|msg| format!("call to '{callee_name}' isn't supported: {msg}"))?;
+    if params.len() != arg_exprs.len() {
+        return Err(format!(
+            "call to '{callee_name}' passes {} argument(s) but it takes {}",
+            arg_exprs.len(),
+            params.len()
+        ));
+    }
+
+    let call_id = program.next_call_id;
+    program.next_call_id += 1;
+
+    let mut callee_ctx = Ctx {
+        declared: HashSet::new(),
+        defs: params.into_iter().zip(arg_exprs).collect(),
+        var_backed: HashSet::new(),
+        namespace: Some(format!("call{call_id}_{callee_name}")),
+    };
+
+    let return_name = intern(&format!("__call{call_id}_{callee_name}_return"));
+    program.call_stack.push(callee_name);
+    let result = lower_block(&callee.block, &mut callee_ctx, Some(return_name), program);
+    program.call_stack.pop();
+    let mut stmts = result?;
+
+    if let Some(t) = target {
+        stmts.push(SStmt::assign(t, SExpr::var(return_name)));
+    }
+    Ok(stmts)
+}
+
 /// Lowers one non-tail-position statement to zero or more `SStmt`s. An
 /// `assert!` lowers to *two* statements — `Assert` (report a finding if
 /// it's reachably false) followed by `Assume` (narrow the path condition,
@@ -278,7 +411,7 @@ fn lower_if_stmts(if_expr: &syn::ExprIf, ctx: &mut Ctx, target: Option<&'static 
 /// after an assertion that didn't panic) — because `tpt-for-symbolic-exec`'s
 /// `Assert` alone only checks a condition without remembering it, unlike an
 /// actual `assert!` in a real program.
-fn lower_stmt(stmt: &Stmt, ctx: &mut Ctx) -> Result<Vec<SStmt>, String> {
+fn lower_stmt(stmt: &Stmt, ctx: &mut Ctx, program: &mut Program) -> Result<Vec<SStmt>, String> {
     match stmt {
         Stmt::Local(local) => {
             let name = match &local.pat {
@@ -296,17 +429,26 @@ fn lower_stmt(stmt: &Stmt, ctx: &mut Ctx) -> Result<Vec<SStmt>, String> {
             if init.diverge.is_some() {
                 return Err(format!("'let {name} = ... else {{ ... }}' isn't supported"));
             }
-            let interned = intern(&name);
-            if let Expr::If(if_expr) = &*init.expr {
-                let stmts = lower_if_stmts(if_expr, ctx, Some(interned))?;
-                // Var-backed, not inlined: see `Ctx::var_backed`'s doc for why
-                // a branch-dependent value can't be a single inlined `SExpr`.
-                ctx.var_backed.insert(name);
-                Ok(stmts)
-            } else {
-                let expr = lower_expr(&init.expr, ctx)?;
-                ctx.defs.insert(name, expr.clone());
-                Ok(vec![SStmt::assign(interned, expr)])
+            let interned = intern(&namespaced(ctx, &name));
+            match &*init.expr {
+                Expr::If(if_expr) => {
+                    let stmts = lower_if_stmts(if_expr, ctx, Some(interned), program)?;
+                    // Var-backed, not inlined: see `Ctx::var_backed`'s doc
+                    // for why a branch-dependent value can't be a single
+                    // inlined `SExpr`.
+                    ctx.var_backed.insert(namespaced(ctx, &name));
+                    Ok(stmts)
+                }
+                Expr::Call(call) => {
+                    let stmts = lower_call_stmts(call, ctx, Some(interned), program)?;
+                    ctx.var_backed.insert(namespaced(ctx, &name));
+                    Ok(stmts)
+                }
+                _ => {
+                    let expr = lower_expr(&init.expr, ctx)?;
+                    ctx.defs.insert(name, expr.clone());
+                    Ok(vec![SStmt::assign(interned, expr)])
+                }
             }
         }
         Stmt::Expr(expr, semi) => match expr {
@@ -315,16 +457,18 @@ fn lower_stmt(stmt: &Stmt, ctx: &mut Ctx) -> Result<Vec<SStmt>, String> {
             // block statement with no trailing `;` — only the block's truly
             // *last* statement is tail position, and `lower_block` routes
             // that case to `lower_tail` before ever calling this function.
-            Expr::If(if_expr) => lower_if_stmts(if_expr, ctx, None),
+            Expr::If(if_expr) => lower_if_stmts(if_expr, ctx, None, program),
+            Expr::Call(call) => lower_call_stmts(call, ctx, None, program),
             _ if semi.is_some() => Err(
-                "only 'assert!(...)'/'debug_assert!(...)' and 'if/else' statements are supported \
-                 in a function body besides 'let' bindings (no bare expressions, loops, or \
-                 function calls)"
+                "only 'assert!(...)'/'debug_assert!(...)', 'if/else' statements, and calls to \
+                 other functions in this paste are supported in a function body besides 'let' \
+                 bindings (no bare expressions, loops, or external function calls)"
                     .to_string(),
             ),
             _ => Err(
-                "this expression can't appear without a trailing ';' here (only 'if/else', \
-                 'assert!'/'debug_assert!', or the function's final tail expression can)"
+                "this expression can't appear without a trailing ';' here (only 'if/else', a \
+                 function call, 'assert!'/'debug_assert!', or the function's final tail \
+                 expression can)"
                     .to_string(),
             ),
         },
@@ -445,12 +589,15 @@ fn expr_has_var(e: &SExpr) -> Option<&str> {
 fn resolve_ident(name: &str, ctx: &Ctx) -> Result<SExpr, String> {
     if ctx.declared.contains(name) {
         Ok(SExpr::sym(name))
-    } else if ctx.var_backed.contains(name) {
-        Ok(SExpr::var(name))
-    } else if let Some(def) = ctx.defs.get(name) {
-        Ok(def.clone())
     } else {
-        Err(format!("undeclared identifier '{name}' (not a parameter or a previous 'let' binding)"))
+        let full = namespaced(ctx, name);
+        if ctx.var_backed.contains(&full) {
+            Ok(SExpr::var(full))
+        } else if let Some(def) = ctx.defs.get(name) {
+            Ok(def.clone())
+        } else {
+            Err(format!("undeclared identifier '{name}' (not a parameter or a previous 'let' binding)"))
+        }
     }
 }
 
@@ -659,4 +806,143 @@ mod tests {
         // reachable division by zero on `y` must still be reported.
         assert!(result.findings.iter().any(|f| f.kind == crate::FindingKind::DivByZero));
     }
+
+    #[test]
+    fn call_inlines_callee_and_catches_a_bad_literal_argument() {
+        // `checkout` passes a literal 0 as `charge`'s divisor — inlining
+        // substitutes it directly, so `charge`'s own precondition
+        // (`divisor != 0`) is checked against a *ground* 0 at the call
+        // site: a real, exact violation, not just "possibly". Real
+        // compositional/interprocedural checking, not a per-function
+        // island.
+        let reports = analyze_rust_source(
+            "fn charge(cents: i64, divisor: i64) -> i64 {\n    \
+                 assert!(divisor != 0);\n    \
+                 cents / divisor\n\
+             }\n\
+             fn checkout(cents: i64) -> i64 {\n    \
+                 charge(cents, 0)\n\
+             }\n",
+        )
+        .unwrap();
+        let checkout = reports.iter().find(|r| r.name == "checkout").unwrap();
+        assert!(checkout.error.is_none(), "unexpected error: {:?}", checkout.error);
+        let result = checkout.result.as_ref().unwrap();
+        assert!(
+            result.findings.iter().any(|f| f.kind == crate::FindingKind::Assertion),
+            "the inlined precondition should be flagged: {:?}",
+            result.findings
+        );
+    }
+
+    #[test]
+    fn call_result_feeds_further_arithmetic() {
+        let reports = analyze_rust_source(
+            "fn double(x: i64) -> i64 {\n    x * 2\n}\n\
+             fn f(a: i64, b: i64) -> i64 {\n    \
+                 let d = double(a);\n    \
+                 d / b\n\
+             }\n",
+        )
+        .unwrap();
+        let f = reports.iter().find(|r| r.name == "f").unwrap();
+        assert!(f.error.is_none(), "unexpected error: {:?}", f.error);
+        let result = f.result.as_ref().unwrap();
+        assert!(result.findings.iter().any(|f| f.kind == crate::FindingKind::DivByZero));
+    }
+
+    #[test]
+    fn call_as_statement_narrows_the_path_for_what_follows() {
+        // `guard`'s inlined `assert!(y != 0)` + its matching `assume` narrow
+        // the path condition for the *caller's* subsequent division, the
+        // same way a direct (non-inlined) assert! would — proving the
+        // division safe given the call didn't already establish y == 0 —
+        // while the precondition itself is still flagged as reachably
+        // violable (a caller really can pass y = 0).
+        let reports = analyze_rust_source(
+            "fn guard(x: i64) -> i64 {\n    \
+                 assert!(x != 0);\n    \
+                 x\n\
+             }\n\
+             fn f(y: i64) -> i64 {\n    \
+                 guard(y);\n    \
+                 10 / y\n\
+             }\n",
+        )
+        .unwrap();
+        let f = reports.iter().find(|r| r.name == "f").unwrap();
+        assert!(f.error.is_none(), "unexpected error: {:?}", f.error);
+        let result = f.result.as_ref().unwrap();
+        assert!(
+            !result.findings.iter().any(|f| f.kind == crate::FindingKind::DivByZero),
+            "division should be proven safe given the inlined guard held: {:?}",
+            result.findings
+        );
+        assert!(result.findings.iter().any(|f| f.kind == crate::FindingKind::Assertion));
+    }
+
+    #[test]
+    fn self_recursive_call_is_rejected() {
+        let reports = analyze_rust_source("fn f(x: i64) -> i64 {\n    f(x)\n}\n").unwrap();
+        assert!(reports[0].error.is_some());
+    }
+
+    #[test]
+    fn mutually_recursive_calls_are_rejected() {
+        let reports = analyze_rust_source(
+            "fn a(x: i64) -> i64 {\n    b(x)\n}\n\
+             fn b(x: i64) -> i64 {\n    a(x)\n}\n",
+        )
+        .unwrap();
+        assert!(reports.iter().all(|r| r.error.is_some()));
+    }
+
+    #[test]
+    fn call_to_undefined_function_is_reported() {
+        let reports = analyze_rust_source("fn f(x: i64) -> i64 {\n    helper(x)\n}\n").unwrap();
+        assert!(reports[0].error.is_some());
+    }
+
+    #[test]
+    fn call_with_wrong_argument_count_is_reported() {
+        let reports = analyze_rust_source(
+            "fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\
+             fn f(x: i64) -> i64 {\n    add(x)\n}\n",
+        )
+        .unwrap();
+        let f = reports.iter().find(|r| r.name == "f").unwrap();
+        assert!(f.error.is_some());
+    }
+
+    #[test]
+    fn two_calls_to_the_same_function_do_not_alias_each_others_locals() {
+        // Both calls inline `helper`'s own `let t = ...;` binding — if the
+        // call-site namespacing were missing, both inlined `t`s would
+        // collide in the shared store and this would either misanalyze or
+        // panic. Two independent, correctly-isolated divisions: one
+        // guarded (safe), one not (flagged).
+        let reports = analyze_rust_source(
+            "fn helper(n: i64, d: i64) -> i64 {\n    \
+                 let t = n;\n    \
+                 t / d\n\
+             }\n\
+             fn f(a: i64, b: i64, c: i64) -> i64 {\n    \
+                 assert!(b != 0);\n    \
+                 let first = helper(a, b);\n    \
+                 let second = helper(a, c);\n    \
+                 first + second\n\
+             }\n",
+        )
+        .unwrap();
+        let f = reports.iter().find(|r| r.name == "f").unwrap();
+        assert!(f.error.is_none(), "unexpected error: {:?}", f.error);
+        let result = f.result.as_ref().unwrap();
+        assert_eq!(
+            result.findings.iter().filter(|finding| finding.kind == crate::FindingKind::DivByZero).count(),
+            1,
+            "only the unguarded second call's division should be flagged: {:?}",
+            result.findings
+        );
+    }
 }
+

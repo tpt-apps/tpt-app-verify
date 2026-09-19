@@ -1,0 +1,47 @@
+{
+  "name": "tpt-verify-vscode",
+  "displayName": "TPT Verify",
+  "description": "Inline diagnostics for reachable division-by-zero and assertion violations in Rust functions, via the tpt-verify CLI.",
+  "version": "0.1.0",
+  "publisher": "tpt-solutions",
+  "private": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Linters"],
+  "activationEvents": ["onLanguage:rust"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tptVerify.verifyFile",
+        "title": "TPT Verify: Analyze current file"
+      }
+    ],
+    "configuration": {
+      "title": "TPT Verify",
+      "properties": {
+        "tptVerify.executablePath": {
+          "type": "string",
+          "default": "tpt-verify",
+          "description": "Path to the tpt-verify CLI binary. Defaults to 'tpt-verify' (must be on PATH)."
+        },
+        "tptVerify.runOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-run analysis automatically whenever a .rs file is saved."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

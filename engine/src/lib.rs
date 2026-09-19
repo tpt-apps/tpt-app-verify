@@ -19,10 +19,16 @@
 //! multiplication in its asserts isn't over-read as a proof.
 
 mod parser;
+#[cfg(feature = "pro")]
+mod pdf;
+#[cfg(feature = "pro")]
+mod range;
 mod report;
 mod rust_frontend;
 
 pub use parser::ParseError;
+#[cfg(feature = "pro")]
+pub use report::render_report_pdf;
 pub use report::render_report;
 pub use rust_frontend::{analyze_rust_source, FunctionReport};
 
@@ -34,6 +40,12 @@ pub struct Finding {
     pub kind: FindingKind,
     pub summary: String,
     pub detail: String,
+    /// A plain-English sentence describing the same witness path
+    /// condition `detail` gives as raw boolean algebra (`x == 0 AND ...`)
+    /// — for someone who doesn't want to parse solver notation to trust
+    /// the finding. Both are kept: `detail` for someone who *does* want
+    /// the precise expression.
+    pub explanation: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,13 +103,14 @@ pub(crate) fn analyze_stmts(stmts: &[SStmt]) -> AnalysisResult {
                 kind,
                 summary,
                 detail: format!("witness path condition: {}", describe_path(&v.path_condition)),
+                explanation: describe_path_natural(&v.path_condition),
             }
         })
         .collect();
 
     #[cfg(feature = "pro")]
     {
-        findings.extend(range_findings(stmts));
+        findings.extend(range::range_findings(stmts));
     }
 
     AnalysisResult {
@@ -128,6 +141,54 @@ fn describe_cond(c: &SCond) -> String {
     }
 }
 
+/// A plain-English rendering of a witness path condition — see
+/// `Finding::explanation`'s doc for why this exists alongside the raw
+/// boolean form.
+fn describe_path_natural(path: &[SCond]) -> String {
+    if path.is_empty() {
+        return "This is always reachable — no conditions restrict it.".to_string();
+    }
+    format!(
+        "This is reachable when {}.",
+        path.iter().map(describe_cond_natural).collect::<Vec<_>>().join(", and ")
+    )
+}
+
+fn describe_cond_natural(c: &SCond) -> String {
+    match c {
+        SCond::True => "true".to_string(),
+        SCond::Eq(a, b) => format!("{} equals {}", describe_expr(a), describe_expr(b)),
+        SCond::Lt(a, b) => format!("{} is less than {}", describe_expr(a), describe_expr(b)),
+        SCond::Le(a, b) => format!("{} is at most {}", describe_expr(a), describe_expr(b)),
+        SCond::Gt(a, b) => format!("{} is greater than {}", describe_expr(a), describe_expr(b)),
+        SCond::Ge(a, b) => format!("{} is at least {}", describe_expr(a), describe_expr(b)),
+        // `!=` lowers to `Not(Eq(...))` — special-cased since it's by far
+        // the most common negation this tool ever actually sees (division
+        // guards), and "x is not equal to 0" reads far better than "it is
+        // not the case that x equals 0". A *violated* `!=` guard doubles
+        // that to `Not(Not(Eq(...)))` (the witness path negates the
+        // guard condition itself) — eliminated back down to a plain
+        // "x equals 0" rather than the double negative "it is not the
+        // case that x is not equal to 0" that would otherwise fall out of
+        // naively recursing.
+        SCond::Not(inner) => match &**inner {
+            SCond::Eq(a, b) => format!("{} is not equal to {}", describe_expr(a), describe_expr(b)),
+            SCond::Not(innermost) => describe_cond_natural(innermost),
+            // De Morgan for the four ordering comparisons too, so e.g. a
+            // violated `assert!(x > 5)` reads as "x is at most 5" instead
+            // of the grammatically-fine-but-stilted "it is not the case
+            // that x is greater than 5".
+            SCond::Lt(a, b) => format!("{} is at least {}", describe_expr(a), describe_expr(b)),
+            SCond::Le(a, b) => format!("{} is greater than {}", describe_expr(a), describe_expr(b)),
+            SCond::Gt(a, b) => format!("{} is at most {}", describe_expr(a), describe_expr(b)),
+            SCond::Ge(a, b) => format!("{} is less than {}", describe_expr(a), describe_expr(b)),
+            other => format!("it is not the case that {}", describe_cond_natural(other)),
+        },
+        SCond::And(a, b) => format!("{} and {}", describe_cond_natural(a), describe_cond_natural(b)),
+        SCond::Or(a, b) => format!("either {} or {}", describe_cond_natural(a), describe_cond_natural(b)),
+    }
+}
+
 fn describe_expr(e: &SExpr) -> String {
     match e {
         SExpr::Const(n) => n.to_string(),
@@ -139,80 +200,6 @@ fn describe_expr(e: &SExpr) -> String {
         SExpr::Div(a, b) => format!("({} / {})", describe_expr(a), describe_expr(b)),
         SExpr::Neg(a) => format!("(-{})", describe_expr(a)),
     }
-}
-
-/// Pro-only: a lightweight interval sanity pass. This is intentionally
-/// simple for v1 — it flags free inputs with no bounding `assume`, since an
-/// unbounded input can drive any downstream arithmetic to overflow. A full
-/// CFG-based `tpt_for_abstract_interp::analyze` pass (per-statement interval
-/// tracking) is real follow-up work, not a v1 blocker.
-#[cfg(feature = "pro")]
-fn range_findings(stmts: &[tpt_for_symbolic_exec::SStmt]) -> Vec<Finding> {
-    use std::collections::HashSet;
-    use tpt_for_symbolic_exec::SStmt;
-
-    let mut bounded: HashSet<String> = HashSet::new();
-    let mut syms: HashSet<String> = HashSet::new();
-
-    fn collect_syms_in_expr(e: &SExpr, out: &mut HashSet<String>) {
-        match e {
-            SExpr::Sym(s) => {
-                out.insert(s.clone());
-            }
-            SExpr::Add(a, b) | SExpr::Sub(a, b) | SExpr::Mul(a, b) | SExpr::Div(a, b) => {
-                collect_syms_in_expr(a, out);
-                collect_syms_in_expr(b, out);
-            }
-            SExpr::Neg(a) => collect_syms_in_expr(a, out),
-            _ => {}
-        }
-    }
-    fn collect_syms_in_cond(c: &SCond, out: &mut HashSet<String>) {
-        match c {
-            SCond::Eq(a, b) | SCond::Lt(a, b) | SCond::Le(a, b) | SCond::Gt(a, b) | SCond::Ge(a, b) => {
-                collect_syms_in_expr(a, out);
-                collect_syms_in_expr(b, out);
-            }
-            SCond::Not(inner) => collect_syms_in_cond(inner, out),
-            SCond::And(a, b) | SCond::Or(a, b) => {
-                collect_syms_in_cond(a, out);
-                collect_syms_in_cond(b, out);
-            }
-            SCond::True => {}
-        }
-    }
-
-    for s in stmts {
-        match s {
-            SStmt::Assign(_, e) => collect_syms_in_expr(e, &mut syms),
-            SStmt::Assert(c) | SStmt::Assume(c) => {
-                collect_syms_in_cond(c, &mut bounded);
-                collect_syms_in_cond(c, &mut syms);
-            }
-            SStmt::If(c, then, els) => {
-                collect_syms_in_cond(c, &mut bounded);
-                collect_syms_in_cond(c, &mut syms);
-                for s in then.iter().chain(els.iter()) {
-                    // Shallow: only one level of nesting matters for this pass.
-                    if let SStmt::Assign(_, e) = s {
-                        collect_syms_in_expr(e, &mut syms);
-                    }
-                }
-            }
-        }
-    }
-
-    syms.difference(&bounded)
-        .map(|name| Finding {
-            kind: FindingKind::RangeOverflow,
-            summary: format!("Unbounded input '{name}' has no range assumption"),
-            detail: format!(
-                "'{name}' is used in arithmetic with no 'assert'/'assume' constraining its range — \
-                 add one (e.g. `assume {name} >= 0 && {name} < 1000000`) or confirm downstream \
-                 arithmetic can't overflow for its full i64 range."
-            ),
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -271,5 +258,36 @@ mod tests {
         let result = analyze("input x\nassume x > 5\nassert x > 0\n");
         assert!(result.parse_error.is_none());
         assert!(!result.findings.is_empty());
+    }
+
+    #[test]
+    fn explanation_reads_as_plain_english() {
+        let result = analyze("input x\nz = 10 / x\n");
+        let finding = &result.findings[0];
+        assert!(
+            finding.explanation.contains("is not equal to") || finding.explanation.contains("equals"),
+            "expected plain-English wording, got: {}",
+            finding.explanation
+        );
+        assert!(!finding.explanation.contains("AND"), "should read as prose, not boolean algebra: {}", finding.explanation);
+    }
+
+    #[test]
+    fn violated_ne_guard_explanation_has_no_double_negative() {
+        // `assert x != 0` violated -> witness is `Not(Not(Eq(x, 0)))`.
+        // The explanation should read "x equals 0", not "it is not the
+        // case that x is not equal to 0".
+        let result = analyze("input x\nassert x != 0\n");
+        let finding = &result.findings[0];
+        assert_eq!(finding.explanation, "This is reachable when x equals 0.");
+    }
+
+    #[test]
+    fn violated_gt_guard_reads_as_a_plain_comparison() {
+        // `assert x > 5` violated -> witness is `Not(Gt(x, 5))`, which
+        // should read as "x is at most 5", not a double-negative.
+        let result = analyze("input x\nassert x > 5\n");
+        let finding = &result.findings[0];
+        assert_eq!(finding.explanation, "This is reachable when x is at most 5.");
     }
 }
