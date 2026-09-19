@@ -3363,6 +3363,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-core"
 version = "0.1.1"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
 dependencies = [
  "serde",
  "serde_json",
@@ -3373,6 +3374,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-dom"
 version = "0.1.1"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
 dependencies = [
  "serde",
  "serde_json",
@@ -3384,6 +3386,7 @@ dependencies = [
 [[package]]
 name = "tpt-appfront-macros"
 version = "0.1.1"
+source = "git+https://github.com/tpt-solutions/tpt-appfront.git?rev=a75a79880bbbe32dcbf39fe920d73b79f3a97eb4#a75a79880bbbe32dcbf39fe920d73b79f3a97eb4"
 dependencies = [
  "proc-macro2",
  "quote",
