@@ -7,9 +7,9 @@ here too (and vice versa).
 ## Step-by-step: publish this listing
 
 1. Built — `release\TPT-Verify-Pro.zip` is ready to upload as-is. (Re-run
-   `./build.ps1 -Pro`, `trunk build --release --features pro`, and
-   `cargo build --release -p tpt-verify-desktop`, then re-stage/re-zip, before
-   every price/content change to the Pro build.)
+   `./build.ps1 -Pro` before every price/content change to the Pro build —
+   it builds the bundle and the exe, re-stages and re-zips, prints the
+   version and SHA256, and writes `release\TPT-Verify-Pro.zip.sha256`.)
 2. Log in to Gumroad → **New product** → **Digital product**.
 3. Set the product name, price, and upload the packaged file (all below).
 4. Paste the short description, bullets, and full description (below) into
@@ -198,13 +198,14 @@ preinstalled on both — nothing extra to download.
 
 ## Cover image / thumbnail
 
-A candidate is at `assets/gumroad-cover-candidate.png` — the actual Pro
-desktop exe, analyzed, showing one real division-by-zero finding and one
-real assertion finding side by side (with badges, witness path, and the
-plain-English explanation), captured during this session's interactive
-desktop smoke test. Crop/resize to Gumroad's cover dimensions before
-uploading; re-capture from a fresh run if the sample set changes. No
-stock/AI art.
+Upload-ready file: `assets/gumroad-cover.png` — 1280×720 (Gumroad's
+recommended cover size), cropped from the real Pro desktop exe mid-analysis
+(one real division-by-zero finding and one real assertion finding side by
+side, with badges, witness path, and the plain-English explanation), with
+the window title bar and taskbar trimmed off. The uncropped capture is kept
+at `assets/gumroad-cover-candidate.png`; regenerate the cover from a fresh
+run (re-run the desktop smoke test, then re-crop) if the sample set changes.
+No stock/AI art.
 
 ## After publishing
 

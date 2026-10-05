@@ -1,4 +1,4 @@
-# TPT Verify - build pipeline (Windows).
+﻿# TPT Verify - build pipeline (Windows).
 #
 # Free edition (default):  ./build.ps1
 #   cargo build --release --target wasm32-unknown-unknown (no pro feature)
@@ -50,8 +50,30 @@ if ($Pro) {
     Write-Host "-- cargo build --release -p tpt-verify-desktop (webview exe)" -ForegroundColor Cyan
     cargo build --release -p tpt-verify-desktop
     if ($LASTEXITCODE -ne 0) { throw "desktop build failed" }
-    Write-Host "   exe: target\release\tpt-verify-pro.exe (serves dist\)" -ForegroundColor Cyan
+    Write-Host "   exe: target\release\tpt-verify-pro.exe (dist\ embedded via include_dir)" -ForegroundColor Cyan
+
+    # Stage the Gumroad artifact: standalone exe (dist is embedded) zipped at
+    # the archive root, plus a .sha256 sidecar — this is exactly the
+    # "re-stage/re-zip before every price/content change" step from
+    # GUMROAD.md, now part of the same command.
+    Write-Host "-- staging release\TPT-Verify-Pro.exe + zip" -ForegroundColor Cyan
+    $ExeSrc = Join-Path $PSScriptRoot "target\release\tpt-verify-pro.exe"
+    if (-not (Test-Path $ExeSrc)) { throw "missing $ExeSrc" }
+    $ReleaseDir = Join-Path $PSScriptRoot "release"
+    New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
+    $ExeDst = Join-Path $ReleaseDir "TPT-Verify-Pro.exe"
+    Copy-Item $ExeSrc $ExeDst -Force
+    $ZipPath = Join-Path $ReleaseDir "TPT-Verify-Pro.zip"
+    Compress-Archive -Path $ExeDst -DestinationPath $ZipPath -Force
+    $Hash = (Get-FileHash $ZipPath -Algorithm SHA256).Hash
+    Set-Content -Path "$ZipPath.sha256" -Value "$Hash  TPT-Verify-Pro.zip" -Encoding ascii
+
+    $Version = (Select-String -Path (Join-Path $PSScriptRoot "desktop\Cargo.toml") `
+        -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
     Write-Host "-- done" -ForegroundColor Green
+    Write-Host "   version: $Version"
+    Write-Host "   upload:  $ZipPath ($([math]::Round((Get-Item $ZipPath).Length / 1MB, 2)) MB)"
+    Write-Host "   sha256:  $Hash  (sidecar: TPT-Verify-Pro.zip.sha256)"
     Write-Host "   (public/apps/verify/ was not touched — run ./build.ps1 with no flags to refresh the free demo)"
     exit 0
 }

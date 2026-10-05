@@ -78,11 +78,21 @@
       card lists it
 - [ ] Gumroad product from `GUMROAD.md`, URL + price into the registry entry
       — **manual, next step**
-- [x] Cover image candidate captured: `assets/gumroad-cover-candidate.png`
-      (a real analyzed desktop-exe screenshot from this session's smoke
-      test) — still needs a human crop/resize pass to Gumroad's exact
-      cover dimensions before upload, but the "run it and grab a
-      screenshot" step is done.
+- [x] Gumroad cover image done: `assets/gumroad-cover.png` — 1280×720
+      (Gumroad's recommended cover size), cropped from the real analyzed
+      desktop-exe screenshot (`assets/gumroad-cover-candidate.png`, kept as
+      the raw capture): window title bar and taskbar trimmed, resized.
+      Upload-ready as-is.
+- [x] `./build.ps1 -Pro` now packages the Gumroad artifact in the same
+      command (stages `release\TPT-Verify-Pro.exe`, zips to
+      `release\TPT-Verify-Pro.zip`, writes a `.sha256` sidecar, prints the
+      version) — the "re-stage/re-zip before every price/content change"
+      step from `GUMROAD.md` is no longer a separate manual checklist. Also
+      fixed while touching the script: it had UTF-8 em-dashes but no BOM,
+      so Windows PowerShell 5.1 (which decodes BOM-less files as ANSI and
+      then treats the mangled bytes as smart-quote string delimiters)
+      couldn't even parse it — a BOM was added, and the file now parses
+      under both 5.1 and pwsh 7.
 
 ## Known engine limitations (real, not TODOs — see `GUMROAD.md`'s honest
 scope note for the full explanation)
