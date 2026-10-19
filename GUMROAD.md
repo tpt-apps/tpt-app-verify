@@ -21,7 +21,7 @@ here too (and vice versa).
    on the same entry.
 8. Confirm `status` is `'live'` (it already is — the free demo shipped
    first).
-9. Commit and push the registry repo..
+9. Commit and push the registry repo...
 
 ## File to upload
 
