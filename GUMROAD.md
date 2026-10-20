@@ -15,7 +15,8 @@ here too (and vice versa).
 4. Paste the short description, bullets, and full description (below) into
    their respective fields.
 5. Set category/tags (below) and add a cover image (see note below).
-6. Publish, then copy the resulting product URL (`https://gum.co/...`).
+6. Publish, then copy the resulting product URL
+   (`https://tpt12.gumroad.com/l/tpt-verify`).
 7. Paste that URL into the `verify` entry's `gumroadUrl` field in
    `tpt-electrician-nz-2\src\lib\tpt-apps-registry.ts`, and set `price: '$999'`
    on the same entry.
@@ -184,7 +185,9 @@ assertion-checking on compound arithmetic conditions is best-effort, not a
 blanket proof. Division-by-zero freedom following a real guard is exact.
 
 Try the free edition first, right in your browser, no install:
-tptsolutions.co.nz/tools/verify
+https://tptsolutions.co.nz/tools/verify
+
+More free tools from TPT Solutions: https://tptsolutions.co.nz/tools
 
 Requirements: Windows 10 (20H2+) or Windows 11. Uses the WebView2 runtime,
 preinstalled on both — nothing extra to download.
@@ -209,7 +212,7 @@ No stock/AI art.
 
 ## After publishing
 
-1. Copy the resulting product URL (`https://gum.co/...`).
+1. Product URL: `https://tpt12.gumroad.com/l/tpt-verify`.
 2. Paste it into the `gumroadUrl` field of the `verify` entry in
    `tpt-electrician-nz-2\src\lib\tpt-apps-registry.ts`, and set `price: '$999'`.
 3. Confirm `status` is `'live'`.

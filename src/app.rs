@@ -108,11 +108,16 @@ const SAMPLES: &[(&str, &str)] = &[
 const BASE_CSS: &str = r#"
 .verify-app{--vf-bg:#f7f7fb;--vf-surface:#ffffff;--vf-panel:#f1f1f8;--vf-fg:#191a23;--vf-muted:#65667a;--vf-border:#e3e3ee;--vf-accent:#5b45e0;--vf-accent-2:#4432b8;--vf-accent-soft:#ece9fb;--vf-accent-fg:#ffffff;--vf-err:#b3261e;--vf-err-bg:#fbeeec;--vf-warn:#8a5a00;--vf-warn-bg:#fbf3e2;--vf-info:#0a5f8a;--vf-info-bg:#e9f4fb;--vf-ok:#0e7c4a;--vf-ok-bg:#e9f7ef;--vf-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);max-width:960px;margin:0 auto;background:var(--vf-bg);color:var(--vf-fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14.5px;line-height:1.55;padding:0 4px 32px}
 @media(prefers-color-scheme:dark){.verify-app{--vf-bg:#0c0d14;--vf-surface:#15161f;--vf-panel:#181a26;--vf-fg:#e9e9f2;--vf-muted:#9a9bb0;--vf-border:#292b3a;--vf-accent:#8a77f5;--vf-accent-2:#a597fa;--vf-accent-soft:#211d3b;--vf-accent-fg:#0b0714;--vf-err:#f2b8b5;--vf-err-bg:#2c1a1c;--vf-warn:#f0d090;--vf-warn-bg:#332912;--vf-info:#8fd0f0;--vf-info-bg:#132430;--vf-ok:#8fe0b8;--vf-ok-bg:#0f2b1e;--vf-shadow:0 1px 2px rgba(0,0,0,.3)}}
+/* Fill the page behind the centred column too, so the margins match the app. */
+html:has(.verify-app),body:has(.verify-app){background:#f7f7fb}
+@media(prefers-color-scheme:dark){html:has(.verify-app),body:has(.verify-app){background:#0c0d14}}
 .verify-app *{box-sizing:border-box}
 .verify-app h1{font-size:1.5rem;margin:0;font-weight:800;letter-spacing:-.01em}
 .verify-app h2{font-size:1.05rem;margin:0 0 6px;font-weight:700}
 
 .verify-header{display:flex;align-items:flex-start;gap:14px;padding:22px 2px 18px;border-bottom:1px solid var(--vf-border);margin-bottom:18px}
+.verify-header a{display:inline-block;margin-top:6px;color:var(--vf-accent);font-weight:600;text-decoration:none}
+.verify-header a:hover{text-decoration:underline}
 .verify-brand{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--vf-accent),var(--vf-accent-2));display:flex;align-items:center;justify-content:center;color:var(--vf-accent-fg);font-weight:800;font-size:.78rem;box-shadow:var(--vf-shadow)}
 
 .verify-card{background:var(--vf-surface);border:1px solid var(--vf-border);border-radius:14px;padding:16px 18px;box-shadow:var(--vf-shadow);margin-bottom:16px}
@@ -395,6 +400,7 @@ fn build_view(
             h.container(|t| {
                 t.heading(1, "TPT Verify");
                 hint(t, "Prove division-by-zero freedom and assertion reachability over real Rust functions — entirely in your browser, nothing uploaded.");
+                t.link("https://tptsolutions.co.nz/tools", "More free tools at tptsolutions.co.nz/tools");
             });
         })
         .class("verify-header");
